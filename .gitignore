@@ -1,0 +1,27 @@
+# Firmware binaries & build artifacts
+*.bin
+*.hex
+*.elf
+*.out
+*.o
+*.a
+*.so
+*.exe
+
+# Go test and profile artifacts
+*.test
+*.prof
+
+# IDE and Editor configurations
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Operating System artifacts
+.DS_Store
+Thumbs.db
+
+# Local temporary log files
+*.log

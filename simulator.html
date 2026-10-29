@@ -1,0 +1,1210 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ESP32-S3 Smart Light Switch Simulator & Web Tester</title>
+  <style>
+    :root {
+      --bg-base: #090d16;
+      --card-bg: rgba(18, 24, 38, 0.75);
+      --card-border: rgba(255, 255, 255, 0.08);
+      --card-border-glow: rgba(99, 102, 241, 0.2);
+      --accent-yellow: #facc15;
+      --glow-color: rgba(250, 204, 21, 0.45);
+      --ambient-glow: rgba(250, 204, 21, 0.12);
+      --text-main: #f3f4f6;
+      --text-muted: #9ca3af;
+      --green-500: #22c55e;
+      --red-500: #ef4444;
+      --blue-500: #3b82f6;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      background-color: var(--bg-base);
+      color: var(--text-main);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      min-height: 100vh;
+      overflow-x: hidden;
+      position: relative;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* Ambient room lighting simulation */
+    .room-ambient {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      background: radial-gradient(circle at 35% 38%, var(--ambient-glow) 0%, transparent 65%);
+      opacity: 0;
+      transition: opacity 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+      z-index: 0;
+    }
+
+    .room-ambient.lit {
+      opacity: 1;
+    }
+
+    /* Top Navigation Bar */
+    header {
+      position: relative;
+      z-index: 10;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 16px 32px;
+      background: rgba(10, 15, 26, 0.8);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border-bottom: 1px solid var(--card-border);
+    }
+
+    .logo-area {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .logo-badge {
+      background: linear-gradient(135deg, #4f46e5, #06b6d4);
+      padding: 6px 12px;
+      border-radius: 8px;
+      font-weight: 800;
+      font-size: 0.85rem;
+      letter-spacing: 0.05em;
+    }
+
+    .header-title {
+      font-size: 1.15rem;
+      font-weight: 700;
+      color: #fff;
+    }
+
+    .header-controls {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+
+    .mode-selector {
+      display: flex;
+      align-items: center;
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid var(--card-border);
+      border-radius: 9999px;
+      padding: 3px;
+    }
+
+    .mode-btn {
+      padding: 6px 14px;
+      border-radius: 9999px;
+      font-size: 0.8rem;
+      font-weight: 600;
+      cursor: pointer;
+      border: none;
+      background: transparent;
+      color: var(--text-muted);
+      transition: all 0.2s;
+    }
+
+    .mode-btn.active {
+      background: #4f46e5;
+      color: #fff;
+      box-shadow: 0 2px 10px rgba(79, 70, 229, 0.4);
+    }
+
+    .sound-toggle-btn {
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid var(--card-border);
+      color: var(--text-muted);
+      padding: 8px 14px;
+      border-radius: 12px;
+      font-size: 0.8rem;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      transition: all 0.2s;
+    }
+
+    .sound-toggle-btn:hover {
+      background: rgba(255, 255, 255, 0.1);
+      color: #fff;
+    }
+
+    /* Main Dashboard Grid */
+    main {
+      position: relative;
+      z-index: 1;
+      flex: 1;
+      padding: 28px 32px;
+      display: grid;
+      grid-template-columns: 1.1fr 0.9fr;
+      gap: 28px;
+      max-width: 1440px;
+      margin: 0 auto;
+      width: 100%;
+    }
+
+    @media (max-width: 1024px) {
+      main {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .panel {
+      background: var(--card-bg);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      border: 1px solid var(--card-border);
+      border-radius: 24px;
+      padding: 28px;
+      display: flex;
+      flex-direction: column;
+      box-shadow: 0 16px 36px rgba(0, 0, 0, 0.35);
+      position: relative;
+    }
+
+    .panel-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 24px;
+    }
+
+    .panel-title {
+      font-size: 1.05rem;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      color: #e5e7eb;
+    }
+
+    .panel-title-icon {
+      width: 24px;
+      height: 24px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: rgba(255, 255, 255, 0.08);
+      border-radius: 6px;
+    }
+
+    /* ========================================================
+       STAGE: LIGHT BULB & ELECTRICAL CIRCUIT VISUALIZATION
+       ======================================================== */
+    .stage-container {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 30px 10px;
+      flex: 1;
+    }
+
+    .bulb-apparatus {
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      margin-bottom: 28px;
+    }
+
+    /* Ceiling Cord & Fixture */
+    .ceiling-cord {
+      width: 4px;
+      height: 48px;
+      background: linear-gradient(to bottom, #4b5563, #374151);
+      border-radius: 2px;
+    }
+
+    .bulb-socket {
+      width: 44px;
+      height: 38px;
+      background: linear-gradient(135deg, #78350f, #b45309, #d97706);
+      border-radius: 6px 6px 4px 4px;
+      border: 1px solid rgba(0, 0, 0, 0.3);
+      box-shadow: inset 0 2px 4px rgba(255, 255, 255, 0.2), 0 4px 8px rgba(0, 0, 0, 0.5);
+      position: relative;
+      z-index: 2;
+    }
+
+    .bulb-socket::after {
+      content: '';
+      position: absolute;
+      bottom: -4px;
+      left: 4px;
+      right: 4px;
+      height: 4px;
+      background: #451a03;
+      border-radius: 2px;
+    }
+
+    /* Glass Light Bulb */
+    .bulb-glass-wrapper {
+      position: relative;
+      width: 170px;
+      height: 230px;
+      margin-top: -3px;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+    }
+
+    .bulb-svg {
+      width: 100%;
+      height: 100%;
+      position: relative;
+      z-index: 3;
+    }
+
+    .bulb-outer-glass {
+      fill: rgba(255, 255, 255, 0.04);
+      stroke: rgba(255, 255, 255, 0.25);
+      stroke-width: 2;
+      transition: all 0.4s ease;
+    }
+
+    .bulb-glow-aura {
+      position: absolute;
+      width: 260px;
+      height: 260px;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -46%);
+      border-radius: 50%;
+      background: radial-gradient(circle, var(--glow-color) 0%, rgba(250, 204, 21, 0.18) 45%, transparent 70%);
+      opacity: 0;
+      transition: opacity 0.4s cubic-bezier(0.4, 0, 0.2, 1), transform 0.4s ease;
+      filter: blur(28px);
+      z-index: 1;
+      pointer-events: none;
+    }
+
+    .filament-line {
+      stroke: #52525b;
+      stroke-width: 2.2;
+      stroke-linecap: round;
+      fill: none;
+      transition: all 0.35s ease;
+    }
+
+    .filament-glow {
+      opacity: 0;
+      transition: opacity 0.35s ease;
+    }
+
+    /* Bulb ON State */
+    .bulb-apparatus.lit .bulb-outer-glass {
+      fill: rgba(254, 240, 138, 0.22);
+      stroke: #fef08a;
+      filter: drop-shadow(0 0 16px rgba(250, 204, 21, 0.7));
+    }
+
+    .bulb-apparatus.lit .bulb-glow-aura {
+      opacity: 1;
+      transform: translate(-50%, -46%) scale(1.15);
+    }
+
+    .bulb-apparatus.lit .filament-line {
+      stroke: #fff7ed;
+      filter: drop-shadow(0 0 6px #facc15);
+    }
+
+    .bulb-apparatus.lit .filament-glow {
+      opacity: 1;
+    }
+
+    /* Electrical Circuit Status Bar */
+    .circuit-strip {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 12px;
+      width: 100%;
+      margin-top: 10px;
+    }
+
+    .circuit-metric {
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid var(--card-border);
+      border-radius: 14px;
+      padding: 12px;
+      text-align: center;
+      transition: border-color 0.2s;
+    }
+
+    .circuit-metric-label {
+      font-size: 0.72rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--text-muted);
+      margin-bottom: 4px;
+    }
+
+    .circuit-metric-val {
+      font-size: 1.05rem;
+      font-weight: 700;
+      color: #fff;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .circuit-metric-val.green { color: var(--green-500); }
+    .circuit-metric-val.yellow { color: var(--accent-yellow); }
+    .circuit-metric-val.red { color: var(--red-500); }
+
+    /* Hardware Schematic Mini-Board */
+    .hardware-visualizer {
+      width: 100%;
+      background: rgba(10, 14, 23, 0.7);
+      border: 1px solid var(--card-border);
+      border-radius: 18px;
+      padding: 18px;
+      margin-top: 20px;
+      display: flex;
+      align-items: center;
+      justify-content: space-around;
+      position: relative;
+    }
+
+    .hw-block {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .hw-chip {
+      width: 90px;
+      padding: 10px 8px;
+      background: #1e293b;
+      border: 2px solid #334155;
+      border-radius: 8px;
+      text-align: center;
+      font-family: monospace;
+      font-size: 0.72rem;
+      font-weight: 700;
+      color: #94a3b8;
+      box-shadow: 0 4px 10px rgba(0, 0, 0, 0.4);
+      position: relative;
+    }
+
+    .hw-pin-indicator {
+      display: inline-block;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #475569;
+      margin-right: 4px;
+      vertical-align: middle;
+      transition: all 0.2s;
+    }
+
+    .hw-pin-indicator.active {
+      background: var(--green-500);
+      box-shadow: 0 0 8px var(--green-500);
+    }
+
+    .wire-connector {
+      flex: 1;
+      height: 2px;
+      background: #334155;
+      margin: 0 12px;
+      position: relative;
+      transition: background 0.3s;
+    }
+
+    .wire-connector.hot {
+      background: var(--green-500);
+      box-shadow: 0 0 6px var(--green-500);
+    }
+
+    .wire-label {
+      position: absolute;
+      top: -16px;
+      left: 50%;
+      transform: translateX(-50%);
+      font-size: 0.68rem;
+      color: #64748b;
+      font-family: monospace;
+      white-space: nowrap;
+    }
+
+    /* ========================================================
+       RIGHT COLUMN: PHONE CONTROLLER & LOG CONSOLE
+       ======================================================== */
+    .right-column {
+      display: flex;
+      flex-direction: column;
+      gap: 24px;
+    }
+
+    /* Interactive Phone Frame Mockup */
+    .phone-simulator-card {
+      align-items: center;
+      background: linear-gradient(145deg, rgba(20, 26, 40, 0.8), rgba(12, 16, 26, 0.9));
+    }
+
+    .phone-mockup {
+      width: 100%;
+      max-width: 320px;
+      background: #111827;
+      border: 8px solid #374151;
+      border-radius: 40px;
+      padding: 16px;
+      box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.7), inset 0 0 10px rgba(0, 0, 0, 0.8);
+      position: relative;
+      overflow: hidden;
+    }
+
+    /* Phone Speaker / Dynamic Island */
+    .phone-island {
+      width: 80px;
+      height: 18px;
+      background: #000;
+      border-radius: 20px;
+      margin: 0 auto 18px;
+    }
+
+    .phone-screen {
+      background: radial-gradient(circle at 50% 15%, #1f2937, #0b0f19);
+      border-radius: 26px;
+      padding: 24px 18px;
+      text-align: center;
+      border: 1px solid rgba(255, 255, 255, 0.05);
+    }
+
+    .phone-screen h2 {
+      font-size: 1.15rem;
+      font-weight: 700;
+      color: #f9fafb;
+      margin-bottom: 4px;
+    }
+
+    .phone-sub {
+      font-size: 0.72rem;
+      color: #9ca3af;
+      margin-bottom: 22px;
+      letter-spacing: 0.04em;
+    }
+
+    .phone-bulb-circle {
+      width: 100px;
+      height: 100px;
+      border-radius: 50%;
+      background: rgba(255, 255, 255, 0.04);
+      margin: 0 auto 20px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.3s ease;
+    }
+
+    .phone-bulb-circle.lit {
+      background: rgba(250, 204, 21, 0.18);
+      box-shadow: 0 0 40px rgba(250, 204, 21, 0.45), inset 0 0 15px rgba(250, 204, 21, 0.25);
+    }
+
+    .phone-bulb-svg {
+      width: 52px;
+      height: 52px;
+      stroke: #6b7280;
+      fill: none;
+      stroke-width: 1.8;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      transition: all 0.3s ease;
+    }
+
+    .phone-bulb-circle.lit .phone-bulb-svg {
+      stroke: #facc15;
+      filter: drop-shadow(0 0 10px #facc15);
+    }
+
+    .phone-status-pill {
+      display: inline-block;
+      font-size: 0.8rem;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      padding: 6px 16px;
+      border-radius: 9999px;
+      margin-bottom: 22px;
+      background: rgba(239, 68, 68, 0.15);
+      color: #f87171;
+      border: 1px solid rgba(239, 68, 68, 0.3);
+      transition: all 0.25s ease;
+    }
+
+    .phone-status-pill.lit {
+      background: rgba(34, 197, 94, 0.15);
+      color: #4ade80;
+      border-color: rgba(34, 197, 94, 0.3);
+    }
+
+    .phone-buttons {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      margin-bottom: 12px;
+    }
+
+    .phone-btn {
+      border: none;
+      padding: 13px 8px;
+      font-size: 0.88rem;
+      font-weight: 700;
+      border-radius: 14px;
+      cursor: pointer;
+      transition: transform 0.1s, filter 0.2s, background 0.2s;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    .phone-btn:active {
+      transform: scale(0.95);
+    }
+
+    .phone-btn-on {
+      background: linear-gradient(135deg, #eab308, #ca8a04);
+      color: #111827;
+      box-shadow: 0 6px 16px rgba(234, 179, 8, 0.35);
+    }
+
+    .phone-btn-off {
+      background: #374151;
+      color: #d1d5db;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+    }
+
+    .phone-btn-toggle {
+      width: 100%;
+      background: rgba(255, 255, 255, 0.08);
+      color: #f3f4f6;
+      border: 1px solid var(--card-border);
+      padding: 10px;
+      font-size: 0.8rem;
+      font-weight: 600;
+      border-radius: 12px;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+
+    .phone-btn-toggle:hover {
+      background: rgba(255, 255, 255, 0.14);
+    }
+
+    .phone-footer-info {
+      font-size: 0.65rem;
+      color: #6b7280;
+      margin-top: 16px;
+    }
+
+    /* Terminal Console & REST API Inspector */
+    .console-panel {
+      flex: 1;
+      min-height: 280px;
+    }
+
+    .terminal-window {
+      background: #050811;
+      border: 1px solid #1e293b;
+      border-radius: 14px;
+      padding: 14px 16px;
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+      font-size: 0.78rem;
+      color: #94a3b8;
+      height: 180px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+      box-shadow: inset 0 2px 8px rgba(0, 0, 0, 0.6);
+    }
+
+    .log-line {
+      display: flex;
+      gap: 8px;
+      word-break: break-all;
+    }
+
+    .log-time {
+      color: #475569;
+      user-select: none;
+    }
+
+    .log-tag {
+      font-weight: 700;
+    }
+
+    .log-tag.switch { color: #facc15; }
+    .log-tag.http { color: #38bdf8; }
+    .log-tag.wifi { color: #a855f7; }
+    .log-tag.system { color: #22c55e; }
+
+    /* Live Hardware Config Row */
+    .live-config-bar {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-top: 14px;
+      padding: 10px 14px;
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid var(--card-border);
+      border-radius: 12px;
+      font-size: 0.78rem;
+    }
+
+    .ip-input {
+      background: #0f172a;
+      border: 1px solid #334155;
+      color: #f8fafc;
+      padding: 6px 10px;
+      border-radius: 8px;
+      font-family: monospace;
+      font-size: 0.8rem;
+      flex: 1;
+      outline: none;
+    }
+
+    .ip-input:focus {
+      border-color: #6366f1;
+    }
+
+    .ping-btn {
+      background: #4f46e5;
+      color: #fff;
+      border: none;
+      padding: 6px 12px;
+      border-radius: 8px;
+      font-weight: 600;
+      cursor: pointer;
+      font-size: 0.75rem;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Ambient background glow when bulb is lit -->
+  <div id="roomAmbient" class="room-ambient"></div>
+
+  <!-- Top Header Navigation -->
+  <header>
+    <div class="logo-area">
+      <div class="logo-badge">TINYGO</div>
+      <div class="header-title">ESP32-S3 Light Switch Tester</div>
+    </div>
+
+    <div class="header-controls">
+      <div class="mode-selector">
+        <button id="simModeBtn" class="mode-btn active" onclick="setMode('sim')">Simulation</button>
+        <button id="liveModeBtn" class="mode-btn" onclick="setMode('live')">Hardware Live</button>
+      </div>
+
+      <button id="soundBtn" class="sound-toggle-btn" onclick="toggleAudio()">
+        <span id="soundIcon">🔊</span>
+        <span>Relay Sound</span>
+      </button>
+    </div>
+  </header>
+
+  <!-- Main Content Dashboard -->
+  <main>
+    <!-- Left Column: Light Bulb & Electrical Circuit Visualizer -->
+    <section class="panel">
+      <div class="panel-header">
+        <div class="panel-title">
+          <div class="panel-title-icon">💡</div>
+          <span>Light Bulb & Physical Circuit</span>
+        </div>
+        <div id="hardwareTag" style="font-size: 0.78rem; color: #9ca3af; font-family: monospace;">
+          GPIO 2 • 3.3V Logic • 1-Ch Relay
+        </div>
+      </div>
+
+      <div class="stage-container">
+        <!-- Bulb & Socket Apparatus -->
+        <div id="bulbApparatus" class="bulb-apparatus">
+          <div class="ceiling-cord"></div>
+          <div class="bulb-socket"></div>
+
+          <div class="bulb-glass-wrapper">
+            <!-- Glow Aura -->
+            <div class="bulb-glow-aura"></div>
+
+            <!-- Detailed Vector Light Bulb SVG -->
+            <svg class="bulb-svg" viewBox="0 0 100 135">
+              <!-- Outer Glass Envelope -->
+              <path class="bulb-outer-glass" d="
+                M 35 15
+                C 30 25, 20 40, 20 62
+                C 20 84, 34 100, 40 110
+                L 60 110
+                C 66 100, 80 84, 80 62
+                C 80 40, 70 25, 65 15
+                Z
+              "/>
+
+              <!-- Internal Stem & Filament Supports -->
+              <line x1="45" y1="108" x2="45" y2="70" stroke="#71717a" stroke-width="1.2" stroke-linecap="round"/>
+              <line x1="55" y1="108" x2="55" y2="70" stroke="#71717a" stroke-width="1.2" stroke-linecap="round"/>
+              <ellipse cx="50" cy="108" rx="8" ry="3" fill="#3f3f46"/>
+
+              <!-- Tungsten Incandescent Filament Wire -->
+              <path class="filament-line" d="
+                M 45 70
+                Q 47 52 50 52
+                Q 53 52 55 70
+              "/>
+
+              <!-- High-brightness filament glow highlight -->
+              <path class="filament-glow" d="
+                M 46 68
+                Q 48 54 50 54
+                Q 52 54 54 68
+              " stroke="#ffffff" stroke-width="1.2" fill="none" filter="drop-shadow(0 0 4px #ffffff)"/>
+
+              <!-- Glass Surface Reflection / Glare -->
+              <path d="M 28 42 C 26 50, 26 62, 29 72" stroke="rgba(255,255,255,0.4)" stroke-width="2.5" stroke-linecap="round" fill="none"/>
+              <path d="M 31 34 C 33 30, 36 26, 40 22" stroke="rgba(255,255,255,0.25)" stroke-width="2" stroke-linecap="round" fill="none"/>
+            </svg>
+          </div>
+        </div>
+
+        <!-- Real-time Circuit Telemetry Metrics -->
+        <div class="circuit-strip">
+          <div class="circuit-metric">
+            <div class="circuit-metric-label">Bulb State</div>
+            <div id="metricBulb" class="circuit-metric-val red">OFF</div>
+          </div>
+          <div class="circuit-metric">
+            <div class="circuit-metric-label">GPIO 2 Signal</div>
+            <div id="metricPin" class="circuit-metric-val">LOW (0V)</div>
+          </div>
+          <div class="circuit-metric">
+            <div class="circuit-metric-label">Relay Contact</div>
+            <div id="metricRelay" class="circuit-metric-val">OPEN</div>
+          </div>
+          <div class="circuit-metric">
+            <div class="circuit-metric-label">Power Draw</div>
+            <div id="metricPower" class="circuit-metric-val">0 Watts</div>
+          </div>
+        </div>
+
+        <!-- Hardware Components Connection Visualization -->
+        <div class="hardware-visualizer">
+          <div class="hw-block">
+            <div class="hw-chip">
+              <span id="pinLed" class="hw-pin-indicator"></span>ESP32-S3
+              <div style="font-size: 0.65rem; color: #64748b; margin-top: 3px;">GPIO 2</div>
+            </div>
+          </div>
+
+          <div id="wire1" class="wire-connector">
+            <span class="wire-label">3.3V Control Line</span>
+          </div>
+
+          <div class="hw-block">
+            <div class="hw-chip" style="width: 100px;">
+              <span id="relayLed" class="hw-pin-indicator"></span>RELAY 5V
+              <div id="relayContactLabel" style="font-size: 0.65rem; color: #64748b; margin-top: 3px;">NO (Open)</div>
+            </div>
+          </div>
+
+          <div id="wire2" class="wire-connector">
+            <span class="wire-label">Mains AC Line</span>
+          </div>
+
+          <div class="hw-block">
+            <div class="hw-chip" style="width: 80px;">
+              <span id="bulbLed" class="hw-pin-indicator"></span>LAMP
+              <div id="lampLabel" style="font-size: 0.65rem; color: #64748b; margin-top: 3px;">Dark</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Right Column: Phone Controller Frame & Diagnostic Logs -->
+    <div class="right-column">
+      <!-- Virtual Phone Controller Mockup -->
+      <section class="panel phone-simulator-card">
+        <div class="panel-header" style="width: 100%;">
+          <div class="panel-title">
+            <div class="panel-title-icon">📱</div>
+            <span>Virtual Phone Web Browser</span>
+          </div>
+          <span style="font-size: 0.72rem; color: #9ca3af; font-family: monospace;">http://192.168.4.1</span>
+        </div>
+
+        <!-- Phone Bezel -->
+        <div class="phone-mockup">
+          <div class="phone-island"></div>
+
+          <!-- Phone Inner Web UI (matches switch.go) -->
+          <div class="phone-screen">
+            <h2>Light Bulb Control</h2>
+            <div class="phone-sub">ESP32-S3 • TINYGO SWITCH</div>
+
+            <div id="phoneBulbCircle" class="phone-bulb-circle">
+              <svg class="phone-bulb-svg" viewBox="0 0 24 24">
+                <path d="M9 18h6m-4 3h2m-4-7.5a6 6 0 1 1 6 0c0 2-2 3.5-2 4.5h-2c0-1-2-2.5-2-4.5z"/>
+              </svg>
+            </div>
+
+            <div id="phoneStatusPill" class="phone-status-pill">LIGHT OFF</div>
+
+            <div class="phone-buttons">
+              <button id="phoneBtnOn" class="phone-btn phone-btn-on" onclick="handleAction('on')">TURN ON</button>
+              <button id="phoneBtnOff" class="phone-btn phone-btn-off" onclick="handleAction('off')">TURN OFF</button>
+            </div>
+
+            <button class="phone-btn-toggle" onclick="handleAction('toggle')">⚡ TOGGLE SWITCH</button>
+
+            <div class="phone-footer-info">Connected to ESP32-LightBulb (Wi-Fi)</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Diagnostic Logs & REST API Monitor -->
+      <section class="panel console-panel">
+        <div class="panel-header">
+          <div class="panel-title">
+            <div class="panel-title-icon">💻</div>
+            <span>Diagnostic Console & REST API</span>
+          </div>
+          <button onclick="clearLogs()" style="background:none; border:none; color:#64748b; font-size:0.75rem; cursor:pointer;">Clear</button>
+        </div>
+
+        <div id="terminal" class="terminal-window">
+          <div class="log-line">
+            <span class="log-time">[13:00:00]</span>
+            <span class="log-tag system">[SYSTEM]</span>
+            <span>ESP32-S3 initialized. TinyGo runtime active.</span>
+          </div>
+          <div class="log-line">
+            <span class="log-time">[13:00:01]</span>
+            <span class="log-tag wifi">[WIFI]</span>
+            <span>SoftAP created: SSID="ESP32-LightBulb", IP=192.168.4.1</span>
+          </div>
+          <div class="log-line">
+            <span class="log-time">[13:00:01]</span>
+            <span class="log-tag http">[HTTP]</span>
+            <span>Webserver listening on port 80. Handlers: /, /on, /off, /toggle, /status</span>
+          </div>
+          <div class="log-line">
+            <span class="log-time">[13:00:02]</span>
+            <span class="log-tag switch">[SWITCH]</span>
+            <span>Relay initialized on GPIO 2 (OFF). Ready for phone connections.</span>
+          </div>
+        </div>
+
+        <!-- Live Board Connection Config (Used when in Live mode) -->
+        <div id="liveConfigRow" class="live-config-bar" style="display: none;">
+          <span style="color: var(--text-muted);">ESP32 IP:</span>
+          <input type="text" id="targetIpInput" class="ip-input" value="http://192.168.4.1">
+          <button class="ping-btn" onclick="fetchLiveStatus()">Sync State</button>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <script>
+    // System State
+    let isBulbOn = false;
+    let currentMode = 'sim'; // 'sim' or 'live'
+    let soundEnabled = true;
+    let audioCtx = null;
+
+    // Elements
+    const roomAmbient = document.getElementById('roomAmbient');
+    const bulbApparatus = document.getElementById('bulbApparatus');
+    const phoneBulbCircle = document.getElementById('phoneBulbCircle');
+    const phoneStatusPill = document.getElementById('phoneStatusPill');
+
+    const metricBulb = document.getElementById('metricBulb');
+    const metricPin = document.getElementById('metricPin');
+    const metricRelay = document.getElementById('metricRelay');
+    const metricPower = document.getElementById('metricPower');
+
+    const pinLed = document.getElementById('pinLed');
+    const relayLed = document.getElementById('relayLed');
+    const bulbLed = document.getElementById('bulbLed');
+    const wire1 = document.getElementById('wire1');
+    const wire2 = document.getElementById('wire2');
+    const relayContactLabel = document.getElementById('relayContactLabel');
+    const lampLabel = document.getElementById('lampLabel');
+
+    const terminal = document.getElementById('terminal');
+    const simModeBtn = document.getElementById('simModeBtn');
+    const liveModeBtn = document.getElementById('liveModeBtn');
+    const liveConfigRow = document.getElementById('liveConfigRow');
+    const targetIpInput = document.getElementById('targetIpInput');
+
+    // ========================================================
+    // PROCEDURAL AUDIO SYNTHESIZER (RELAY SNAP & CLICK)
+    // ========================================================
+    function initAudio() {
+      if (!audioCtx) {
+        const AudioContext = window.AudioContext || window.webkitAudioContext;
+        if (AudioContext) {
+          audioCtx = new AudioContext();
+        }
+      }
+      if (audioCtx && audioCtx.state === 'suspended') {
+        audioCtx.resume();
+      }
+    }
+
+    function playRelayClickSound(engage) {
+      if (!soundEnabled) return;
+      initAudio();
+      if (!audioCtx) return;
+
+      const now = audioCtx.currentTime;
+
+      // Noise burst for mechanical relay armature impact
+      const bufferSize = audioCtx.sampleRate * 0.04; // 40ms
+      const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+      const data = buffer.getChannelData(0);
+      for (let i = 0; i < bufferSize; i++) {
+        data[i] = (Math.random() * 2 - 1) * Math.exp(-i / (bufferSize * 0.25));
+      }
+
+      const noise = audioCtx.createBufferSource();
+      noise.buffer = buffer;
+
+      const filter = audioCtx.createBiquadFilter();
+      filter.type = 'bandpass';
+      filter.frequency.setValueAtTime(engage ? 2200 : 1600, now);
+      filter.Q.setValueAtTime(3.0, now);
+
+      const gain = audioCtx.createGain();
+      gain.gain.setValueAtTime(0.7, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.04);
+
+      noise.connect(filter);
+      filter.connect(gain);
+      gain.connect(audioCtx.destination);
+      noise.start(now);
+
+      // Low frequency "thump"
+      const osc = audioCtx.createOscillator();
+      const oscGain = audioCtx.createGain();
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(engage ? 260 : 190, now);
+      osc.frequency.exponentialRampToValueAtTime(40, now + 0.035);
+
+      oscGain.gain.setValueAtTime(0.4, now);
+      oscGain.gain.exponentialRampToValueAtTime(0.001, now + 0.035);
+
+      osc.connect(oscGain);
+      oscGain.connect(audioCtx.destination);
+      osc.start(now);
+      osc.stop(now + 0.04);
+    }
+
+    function toggleAudio() {
+      soundEnabled = !soundEnabled;
+      const soundBtn = document.getElementById('soundBtn');
+      const soundIcon = document.getElementById('soundIcon');
+      if (soundEnabled) {
+        soundIcon.textContent = '🔊';
+        soundBtn.style.color = '#fff';
+        logMessage('SYSTEM', 'Relay audio effects enabled');
+      } else {
+        soundIcon.textContent = '🔇';
+        soundBtn.style.color = '#64748b';
+        logMessage('SYSTEM', 'Relay audio effects muted');
+      }
+    }
+
+    // ========================================================
+    // STATE UPDATE & VISUALIZATION PIPELINE
+    // ========================================================
+    function updateLightState(turnOn, triggerSound = true) {
+      if (isBulbOn === turnOn) return;
+      isBulbOn = turnOn;
+
+      if (triggerSound) {
+        playRelayClickSound(isBulbOn);
+      }
+
+      if (isBulbOn) {
+        // Bulb & Room
+        roomAmbient.classList.add('lit');
+        bulbApparatus.classList.add('lit');
+
+        // Phone Screen UI
+        phoneBulbCircle.classList.add('lit');
+        phoneStatusPill.classList.add('lit');
+        phoneStatusPill.textContent = 'LIGHT ON';
+
+        // Telemetry
+        metricBulb.textContent = 'ON';
+        metricBulb.className = 'circuit-metric-val yellow';
+
+        metricPin.textContent = 'HIGH (3.3V)';
+        metricPin.className = 'circuit-metric-val green';
+
+        metricRelay.textContent = 'CLOSED';
+        metricRelay.className = 'circuit-metric-val green';
+
+        metricPower.textContent = '60 Watts';
+        metricPower.className = 'circuit-metric-val yellow';
+
+        // Hardware Component LEDs & Wires
+        pinLed.classList.add('active');
+        relayLed.classList.add('active');
+        bulbLed.classList.add('active');
+        wire1.classList.add('hot');
+        wire2.classList.add('hot');
+        relayContactLabel.textContent = 'NO (Closed)';
+        relayContactLabel.style.color = '#4ade80';
+        lampLabel.textContent = 'Glowing 60W';
+        lampLabel.style.color = '#facc15';
+
+        logMessage('SWITCH', 'Light turned ON (Relay CLOSED, GPIO2 = HIGH)');
+      } else {
+        // Bulb & Room
+        roomAmbient.classList.remove('lit');
+        bulbApparatus.classList.remove('lit');
+
+        // Phone Screen UI
+        phoneBulbCircle.classList.remove('lit');
+        phoneStatusPill.classList.remove('lit');
+        phoneStatusPill.textContent = 'LIGHT OFF';
+
+        // Telemetry
+        metricBulb.textContent = 'OFF';
+        metricBulb.className = 'circuit-metric-val red';
+
+        metricPin.textContent = 'LOW (0V)';
+        metricPin.className = 'circuit-metric-val';
+
+        metricRelay.textContent = 'OPEN';
+        metricRelay.className = 'circuit-metric-val';
+
+        metricPower.textContent = '0 Watts';
+        metricPower.className = 'circuit-metric-val';
+
+        // Hardware Component LEDs & Wires
+        pinLed.classList.remove('active');
+        relayLed.classList.remove('active');
+        bulbLed.classList.remove('active');
+        wire1.classList.remove('hot');
+        wire2.classList.remove('hot');
+        relayContactLabel.textContent = 'NO (Open)';
+        relayContactLabel.style.color = '#64748b';
+        lampLabel.textContent = 'Dark';
+        lampLabel.style.color = '#64748b';
+
+        logMessage('SWITCH', 'Light turned OFF (Relay OPEN, GPIO2 = LOW)');
+      }
+    }
+
+    // ========================================================
+    // ACTION HANDLERS (SIMULATION OR LIVE ESP32 REST API)
+    // ========================================================
+    function handleAction(action) {
+      initAudio();
+
+      if (currentMode === 'sim') {
+        logMessage('HTTP', `GET /${action} HTTP/1.1 (Client 192.168.4.2)`);
+        if (action === 'on') {
+          updateLightState(true);
+        } else if (action === 'off') {
+          updateLightState(false);
+        } else if (action === 'toggle') {
+          updateLightState(!isBulbOn);
+        }
+        logMessage('HTTP', `Response 200 OK: {"state":${isBulbOn ? 1 : 0},"status":"${isBulbOn ? 'on' : 'off'}"}`);
+      } else {
+        // Live Hardware HTTP request
+        const base = targetIpInput.value.trim().replace(/\/$/, '');
+        const url = `${base}/${action}`;
+        logMessage('HTTP', `Connecting to ESP32: GET ${url}...`);
+
+        fetch(url)
+          .then(res => res.json())
+          .then(data => {
+            logMessage('HTTP', `ESP32 Response: ` + JSON.stringify(data));
+            updateLightState(data.state === 1);
+          })
+          .catch(err => {
+            logMessage('HTTP', `[Error] Could not contact ESP32 at ${url}: ${err.message}`);
+          });
+      }
+    }
+
+    function fetchLiveStatus() {
+      const base = targetIpInput.value.trim().replace(/\/$/, '');
+      const url = `${base}/status`;
+      logMessage('HTTP', `Polling ${url}...`);
+      fetch(url)
+        .then(res => res.json())
+        .then(data => {
+          logMessage('HTTP', `ESP32 Status: ` + JSON.stringify(data));
+          updateLightState(data.state === 1);
+        })
+        .catch(err => {
+          logMessage('HTTP', `[Error] ${err.message}`);
+        });
+    }
+
+    // Mode Selector
+    function setMode(mode) {
+      currentMode = mode;
+      if (mode === 'sim') {
+        simModeBtn.classList.add('active');
+        liveModeBtn.classList.remove('active');
+        liveConfigRow.style.display = 'none';
+        logMessage('SYSTEM', 'Switched to SIMULATION MODE (Virtual ESP32-S3)');
+      } else {
+        liveModeBtn.classList.add('active');
+        simModeBtn.classList.remove('active');
+        liveConfigRow.style.display = 'flex';
+        logMessage('SYSTEM', 'Switched to LIVE HARDWARE MODE (Connecting to real ESP32-S3)');
+      }
+    }
+
+    // Logger
+    function logMessage(tag, msg) {
+      const line = document.createElement('div');
+      line.className = 'log-line';
+
+      const now = new Date();
+      const timeStr = `[${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}]`;
+
+      const timeSpan = document.createElement('span');
+      timeSpan.className = 'log-time';
+      timeSpan.textContent = timeStr;
+
+      const tagSpan = document.createElement('span');
+      tagSpan.className = 'log-tag ' + tag.toLowerCase();
+      tagSpan.textContent = `[${tag}]`;
+
+      const msgSpan = document.createElement('span');
+      msgSpan.textContent = msg;
+
+      line.appendChild(timeSpan);
+      line.appendChild(tagSpan);
+      line.appendChild(msgSpan);
+
+      terminal.appendChild(line);
+      terminal.scrollTop = terminal.scrollHeight;
+    }
+
+    function clearLogs() {
+      terminal.innerHTML = '';
+      logMessage('SYSTEM', 'Console cleared');
+    }
+  </script>
+</body>
+</html>
